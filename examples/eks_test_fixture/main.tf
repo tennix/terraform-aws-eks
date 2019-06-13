@@ -1,17 +1,18 @@
 terraform {
-  required_version = ">= 0.11.8"
+  required_version = ">= 0.12"
 }
 
 provider "aws" {
-  version = ">= 1.47.0"
-  region  = "${var.region}"
+  version = ">= 2.14.0"
+  region  = var.region
 }
 
 provider "random" {
-  version = "= 1.3.1"
+  version = "= 2.1.2"
 }
 
-data "aws_availability_zones" "available" {}
+data "aws_availability_zones" "available" {
+}
 
 locals {
   cluster_name = "test-eks-${random_string.suffix.result}"
@@ -39,7 +40,6 @@ locals {
   #   },
   # ]
 
-
   # the commented out worker group tags below shows an example of how to define
   # custom tags for the worker groups ASG
   # worker_group_tags = {
@@ -64,7 +64,7 @@ locals {
       # This will launch an autoscaling group with only On-Demand instances
       instance_type        = "t2.small"
       additional_userdata  = "echo foo bar"
-      subnets              = "${join(",", module.vpc.private_subnets)}"
+      subnets              = join(",", module.vpc.private_subnets)
       asg_desired_capacity = "2"
     },
   ]
@@ -73,7 +73,7 @@ locals {
       # This will launch an autoscaling group with only Spot Fleet instances
       instance_type                            = "t2.small"
       additional_userdata                      = "echo foo bar"
-      subnets                                  = "${join(",", module.vpc.private_subnets)}"
+      subnets                                  = join(",", module.vpc.private_subnets)
       additional_security_group_ids            = "${aws_security_group.worker_group_mgmt_one.id},${aws_security_group.worker_group_mgmt_two.id}"
       override_instance_type                   = "t3.small"
       asg_desired_capacity                     = "2"
@@ -85,7 +85,7 @@ locals {
     Environment = "test"
     GithubRepo  = "terraform-aws-eks"
     GithubOrg   = "terraform-aws-modules"
-    Workspace   = "${terraform.workspace}"
+    Workspace   = terraform.workspace
   }
 }
 
@@ -97,7 +97,7 @@ resource "random_string" "suffix" {
 resource "aws_security_group" "worker_group_mgmt_one" {
   name_prefix = "worker_group_mgmt_one"
   description = "SG to be applied to all *nix machines"
-  vpc_id      = "${module.vpc.vpc_id}"
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port = 22
@@ -112,7 +112,7 @@ resource "aws_security_group" "worker_group_mgmt_one" {
 
 resource "aws_security_group" "worker_group_mgmt_two" {
   name_prefix = "worker_group_mgmt_two"
-  vpc_id      = "${module.vpc.vpc_id}"
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port = 22
@@ -127,7 +127,7 @@ resource "aws_security_group" "worker_group_mgmt_two" {
 
 resource "aws_security_group" "all_worker_mgmt" {
   name_prefix = "all_worker_management"
-  vpc_id      = "${module.vpc.vpc_id}"
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port = 22
@@ -143,33 +143,39 @@ resource "aws_security_group" "all_worker_mgmt" {
 }
 
 module "vpc" {
-  source             = "terraform-aws-modules/vpc/aws"
-  version            = "1.14.0"
+  source = "terraform-aws-modules/vpc/aws"
+
+  version            = "2.5.0"
   name               = "test-vpc"
   cidr               = "10.0.0.0/16"
-  azs                = ["${data.aws_availability_zones.available.names[0]}", "${data.aws_availability_zones.available.names[1]}", "${data.aws_availability_zones.available.names[2]}"]
+  azs                = [data.aws_availability_zones.available.names[0], data.aws_availability_zones.available.names[1], data.aws_availability_zones.available.names[2]]
   private_subnets    = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
   public_subnets     = ["10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]
   enable_nat_gateway = true
   single_nat_gateway = true
-  tags               = "${merge(local.tags, map("kubernetes.io/cluster/${local.cluster_name}", "shared"))}"
+  tags = merge(
+    local.tags,
+    {
+      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+    },
+  )
 }
 
 module "eks" {
   source                               = "../.."
-  cluster_name                         = "${local.cluster_name}"
-  subnets                              = ["${module.vpc.private_subnets}"]
-  tags                                 = "${local.tags}"
-  vpc_id                               = "${module.vpc.vpc_id}"
-  worker_groups                        = "${local.worker_groups}"
-  worker_groups_launch_template        = "${local.worker_groups_launch_template}"
+  cluster_name                         = local.cluster_name
+  subnets                              = module.vpc.private_subnets
+  tags                                 = local.tags
+  vpc_id                               = module.vpc.vpc_id
+  worker_groups                        = local.worker_groups
+  worker_groups_launch_template        = local.worker_groups_launch_template
   worker_group_count                   = "1"
   worker_group_launch_template_count   = "1"
-  worker_additional_security_group_ids = ["${aws_security_group.all_worker_mgmt.id}"]
-  map_roles                            = "${var.map_roles}"
-  map_roles_count                      = "${var.map_roles_count}"
-  map_users                            = "${var.map_users}"
-  map_users_count                      = "${var.map_users_count}"
-  map_accounts                         = "${var.map_accounts}"
-  map_accounts_count                   = "${var.map_accounts_count}"
+  worker_additional_security_group_ids = [aws_security_group.all_worker_mgmt.id]
+  map_roles                            = var.map_roles
+  map_roles_count                      = var.map_roles_count
+  map_users                            = var.map_users
+  map_users_count                      = var.map_users_count
+  map_accounts                         = var.map_accounts
+  map_accounts_count                   = var.map_accounts_count
 }
